@@ -32,9 +32,10 @@ class CompletionWindow(gtk.Window):
 
     """Window for displaying a list of completions."""
 
-    def __init__(self, parent, callback):
+    def __init__(self, parent, callback, completionPlugin):
 
         gtk.Window.__init__(self, gtk.WINDOW_TOPLEVEL)
+        self.gedit_window = parent
         self.set_decorated(False)
         self.store = None
         self.view = None
@@ -52,6 +53,8 @@ class CompletionWindow(gtk.Window):
         self.connect('focus-out-event', self.focus_out_event) 
         self.connect('key-press-event', self.key_press_event)
         self.grab_focus()
+        
+        self.completionPlugin = completionPlugin
 
     
     def key_press_event(self, widget, event):
@@ -59,12 +62,25 @@ class CompletionWindow(gtk.Window):
             self.hide()
         elif event.keyval == gtk.keysyms.BackSpace:
             self.hide()
+        elif event.keyval == gtk.keysyms.space:
+            self.hide()
         elif event.keyval in (gtk.keysyms.Return, gtk.keysyms.Tab):
             self.complete()
         elif event.keyval == gtk.keysyms.Up:
             self.select_previous()
         elif event.keyval == gtk.keysyms.Down:
             self.select_next()
+        else:
+            key_name = gtk.gdk.keyval_name(event.keyval)
+            print "key_press_event", key_name
+            doc = self.gedit_window.get_active_document()
+            try:
+                doc.insert_at_cursor(chr(event.keyval))
+                completions = self.completionPlugin.find_completions()
+                self.set_completions(completions)
+            except:
+                # Not a normal character
+                pass
 
     def complete(self):
         self.complete_callback(self.completions[self.get_selected()]['completion'])
@@ -174,7 +190,7 @@ class CompletionPlugin(gedit.Plugin):
         """Activate plugin."""
 
         self.window = window
-        self.popup = CompletionWindow(window, self.complete)
+        self.popup = CompletionWindow(window, self.complete, self)
         handler_ids = []
         callback = self.on_window_tab_added
         handler_id = window.connect("tab-added", callback)
@@ -225,10 +241,11 @@ class CompletionPlugin(gedit.Plugin):
         self.hide_popup()
         self.popup = None
         self.window = None
-
-    def display_completions(self, view, event):
-        """Find completions and display them."""
-
+    
+    def find_completions(self):
+        print "Window is:", self.window
+        print "Active view is:", self.window.get_active_view()
+        view = self.window.get_active_view()
         doc = view.get_buffer()
         insert = doc.get_iter_at_mark(doc.get_insert())
         start = insert.copy()
@@ -238,7 +255,7 @@ class CompletionPlugin(gedit.Plugin):
                 start.forward_char()
                 break
         incomplete = unicode(doc.get_text(start, insert))
-        incomplete += unicode(event.string)
+        #incomplete += unicode(event.string)
         if incomplete.isdigit():
             return self.cancel()
         completes =  complete( doc.get_text(*doc.get_bounds()), incomplete, insert.get_line())
@@ -256,6 +273,43 @@ class CompletionPlugin(gedit.Plugin):
             length = len(incomplete)
         for x in completes:
             x['completion'] = x['abbr'][length:]
+        
+        return completes
+
+    def display_completions(self, view, event):
+        """Find completions and display them."""
+        print "View is:", view
+        print "event.string is", event.string
+        doc = view.get_buffer()
+        insert = doc.get_iter_at_mark(doc.get_insert())
+        completes = self.find_completions()
+#        doc = view.get_buffer()
+#        insert = doc.get_iter_at_mark(doc.get_insert())
+#        start = insert.copy()
+#        while start.backward_char():
+#            char = unicode(start.get_char())
+#            if not self.re_alpha.match(char) and not char == ".":
+#                start.forward_char()
+#                break
+#        incomplete = unicode(doc.get_text(start, insert))
+#        incomplete += unicode(event.string)
+#        if incomplete.isdigit():
+#            return self.cancel()
+#        completes =  complete( doc.get_text(*doc.get_bounds()), incomplete, insert.get_line())
+#        if not completes:
+#            return self.cancel()
+#        self.completes = completes
+
+#        if "." in incomplete:
+#            incompletelist = incomplete.split('.')
+#            newword = incompletelist[-1]
+#            self.completions = list(x['abbr'][len(newword):] for x in completes)
+#            length = len(newword)
+#        else:
+#            self.completions = list(x['abbr'][len(incomplete):] for x in completes)
+#            length = len(incomplete)
+#        for x in completes:
+#            x['completion'] = x['abbr'][length:]
         window = gtk.TEXT_WINDOW_TEXT
         rect = view.get_iter_location(insert)
         x, y = view.buffer_to_window_coords(window, rect.x, rect.y)
